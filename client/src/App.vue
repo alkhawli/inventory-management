@@ -1,46 +1,36 @@
 <template>
-  <div class="app">
-    <header class="top-nav">
-      <div class="nav-container">
-        <div class="logo">
-          <h1>{{ t('nav.companyName') }}</h1>
-          <span class="subtitle">{{ t('nav.subtitle') }}</span>
-        </div>
-        <nav class="nav-tabs">
-          <router-link to="/" :class="{ active: $route.path === '/' }">
-            {{ t('nav.overview') }}
-          </router-link>
-          <router-link to="/inventory" :class="{ active: $route.path === '/inventory' }">
-            {{ t('nav.inventory') }}
-          </router-link>
-          <router-link to="/orders" :class="{ active: $route.path === '/orders' }">
-            {{ t('nav.orders') }}
-          </router-link>
-          <router-link to="/spending" :class="{ active: $route.path === '/spending' }">
-            {{ t('nav.finance') }}
-          </router-link>
-          <router-link to="/demand" :class="{ active: $route.path === '/demand' }">
-            {{ t('nav.demandForecast') }}
-          </router-link>
-          <router-link to="/restocking" :class="{ active: $route.path === '/restocking' }">
-            Restocking
-          </router-link>
-          <router-link to="/reports" :class="{ active: $route.path === '/reports' }">
-            Reports
-          </router-link>
-        </nav>
-        <LanguageSwitcher />
-        <ProfileMenu
-          @show-profile-details="showProfileDetails = true"
-          @show-tasks="showTasks = true"
-        />
-      </div>
-    </header>
-    <FilterBar />
-    <main class="main-content">
-      <router-view />
-    </main>
+  <div class="app-container" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <!-- Sidebar Navigation -->
+    <Sidebar 
+      :nav-items="navigationItems"
+      @toggle-sidebar="handleSidebarToggle"
+      @toggle-theme="handleThemeToggle"
+    />
 
+    <!-- Main Content Area -->
+    <div class="main-wrapper">
+      <!-- Top Bar -->
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <h1 class="page-title">{{ pageTitle }}</h1>
+        </div>
+        <div class="top-bar-right">
+          <FilterBar v-if="showFilters" />
+          <LanguageSwitcher />
+          <ProfileMenu
+            @show-profile-details="showProfileDetails = true"
+            @show-tasks="showTasks = true"
+          />
+        </div>
+      </header>
+
+      <!-- Page Content -->
+      <main class="main-content">
+        <router-view />
+      </main>
+    </div>
+
+    <!-- Modals -->
     <ProfileDetailsModal
       :is-open="showProfileDetails"
       @close="showProfileDetails = false"
@@ -59,9 +49,12 @@
 
 <script>
 import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from './api'
 import { useAuth } from './composables/useAuth'
 import { useI18n } from './composables/useI18n'
+import { icons } from './utils/icons'
+import Sidebar from './components/Sidebar.vue'
 import FilterBar from './components/FilterBar.vue'
 import ProfileMenu from './components/ProfileMenu.vue'
 import ProfileDetailsModal from './components/ProfileDetailsModal.vue'
@@ -71,6 +64,7 @@ import LanguageSwitcher from './components/LanguageSwitcher.vue'
 export default {
   name: 'App',
   components: {
+    Sidebar,
     FilterBar,
     ProfileMenu,
     ProfileDetailsModal,
@@ -78,11 +72,71 @@ export default {
     LanguageSwitcher
   },
   setup() {
+    const route = useRoute()
     const { currentUser } = useAuth()
     const { t } = useI18n()
+    
     const showProfileDetails = ref(false)
     const showTasks = ref(false)
     const apiTasks = ref([])
+    const sidebarCollapsed = ref(false)
+
+    // Navigation items with SVG icons
+    // Icons are defined in utils/icons.js for maintainability
+    const navigationItems = computed(() => [
+      { 
+        path: '/', 
+        label: t('nav.overview'), 
+        icon: icons.dashboard 
+      },
+      { 
+        path: '/inventory', 
+        label: t('nav.inventory'), 
+        icon: icons.inventory 
+      },
+      { 
+        path: '/orders', 
+        label: t('nav.orders'), 
+        icon: icons.orders 
+      },
+      { 
+        path: '/restocking', 
+        label: 'Restocking', 
+        icon: icons.restocking 
+      },
+      { 
+        path: '/demand', 
+        label: t('nav.demandForecast'), 
+        icon: icons.demand 
+      },
+      { 
+        path: '/spending', 
+        label: t('nav.finance'), 
+        icon: icons.spending 
+      },
+      { 
+        path: '/reports', 
+        label: 'Reports', 
+        icon: icons.reports 
+      }
+    ])
+
+    // Compute page title based on current route
+    const pageTitle = computed(() => {
+      const item = navigationItems.value.find(i => {
+        if (i.path === '/') {
+          return route.path === '/'
+        }
+        return route.path.startsWith(i.path)
+      })
+      return item?.label || 'Dashboard'
+    })
+
+    // Determine if filters should be shown on this route
+    // Filters are hidden on specific pages like reports
+    const showFilters = computed(() => {
+      return route.meta.showFilters !== false && route.path !== '/reports'
+    })
 
     // Merge mock tasks from currentUser with API tasks
     const tasks = computed(() => {
@@ -149,6 +203,16 @@ export default {
       }
     }
 
+    const handleSidebarToggle = (collapsed) => {
+      sidebarCollapsed.value = collapsed
+    }
+
+    const handleThemeToggle = (isDark) => {
+      // Theme is handled by Sidebar component
+      // This handler can be used for additional theme logic if needed
+      console.log('Theme toggled:', isDark ? 'dark' : 'light')
+    }
+
     onMounted(loadTasks)
 
     return {
@@ -156,15 +220,110 @@ export default {
       showProfileDetails,
       showTasks,
       tasks,
+      navigationItems,
+      pageTitle,
+      showFilters,
+      sidebarCollapsed,
       addTask,
       deleteTask,
-      toggleTask
+      toggleTask,
+      handleSidebarToggle,
+      handleThemeToggle
     }
   }
 }
 </script>
 
 <style>
+/* CSS Variables for Light Mode */
+:root {
+  /* Primary Colors */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+
+  /* Neutral Colors */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  /* Status Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Background Colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+
+  /* Text Colors */
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+
+  /* Border Colors */
+  --border-light: #e5e7eb;
+  --border-medium: #d1d5db;
+  --border-dark: #9ca3af;
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+}
+
+/* Dark Mode Variables */
+.dark-mode {
+  /* Primary Colors (slightly adjusted for dark mode) */
+  --color-primary-50: #1e3a8a;
+  --color-primary-100: #1e40af;
+  --color-primary-500: #60a5fa;
+  --color-primary-600: #93c5fd;
+  --color-primary-700: #bfdbfe;
+
+  /* Neutral Colors (inverted) */
+  --color-gray-50: #1f2937;
+  --color-gray-100: #374151;
+  --color-gray-200: #4b5563;
+  --color-gray-300: #6b7280;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #d1d5db;
+  --color-gray-600: #e5e7eb;
+  --color-gray-700: #f3f4f6;
+  --color-gray-800: #f9fafb;
+  --color-gray-900: #ffffff;
+
+  /* Background Colors (dark) */
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-tertiary: #374151;
+
+  /* Text Colors (inverted) */
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-tertiary: #9ca3af;
+
+  /* Border Colors (darker) */
+  --border-light: #374151;
+  --border-medium: #4b5563;
+  --border-dark: #6b7280;
+}
+
+/* Global Reset */
 * {
   margin: 0;
   padding: 0;
@@ -172,111 +331,75 @@ export default {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s, color 0.2s;
 }
 
-.app {
+/* App Container Layout */
+.app-container {
   display: flex;
-  flex-direction: column;
   min-height: 100vh;
 }
 
-.top-nav {
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+/* Main Wrapper (right of sidebar) */
+.main-wrapper {
+  flex: 1;
+  margin-left: 260px;
+  display: flex;
+  flex-direction: column;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-container.sidebar-collapsed .main-wrapper {
+  margin-left: 72px;
+}
+
+/* Top Bar */
+.top-bar {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-light);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
   position: sticky;
   top: 0;
   z-index: 100;
+  transition: background-color 0.2s, border-color 0.2s;
 }
 
-.nav-container {
-  max-width: 1600px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 0 2rem;
-  height: 70px;
+.top-bar-left {
+  flex: 1;
 }
 
-.nav-container > .nav-tabs {
-  margin-left: auto;
-  margin-right: 1rem;
-}
-
-.nav-container > .language-switcher {
-  margin-right: 1rem;
-}
-
-.logo {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.logo h1 {
-  font-size: 1.375rem;
+.page-title {
+  font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
   letter-spacing: -0.025em;
 }
 
-.subtitle {
-  font-size: 0.813rem;
-  color: #64748b;
-  font-weight: 400;
-  padding-left: 0.75rem;
-  border-left: 1px solid #e2e8f0;
-}
-
-.nav-tabs {
+.top-bar-right {
   display: flex;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 1rem;
 }
 
-.nav-tabs a {
-  padding: 0.625rem 1.25rem;
-  color: #64748b;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.938rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.nav-tabs a:hover {
-  color: #0f172a;
-  background: #f1f5f9;
-}
-
-.nav-tabs a.active {
-  color: #2563eb;
-  background: #eff6ff;
-}
-
-.nav-tabs a.active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #2563eb;
-}
-
+/* Main Content */
 .main-content {
   flex: 1;
+  padding: 2rem;
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
-  padding: 1.5rem 2rem;
 }
 
+/* Page Headers */
 .page-header {
   margin-bottom: 1.5rem;
 }
@@ -284,16 +407,17 @@ body {
 .page-header h2 {
   font-size: 1.875rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
   margin-bottom: 0.375rem;
   letter-spacing: -0.025em;
 }
 
 .page-header p {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.938rem;
 }
 
+/* Stats Grid */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -302,56 +426,59 @@ body {
 }
 
 .stat-card {
-  background: white;
-  padding: 1.25rem;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-primary);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
   transition: all 0.2s ease;
 }
 
 .stat-card:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: var(--border-medium);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
 }
 
 .stat-label {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 0.625rem;
+  margin-bottom: 0.75rem;
 }
 
 .stat-value {
   font-size: 2.25rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
   letter-spacing: -0.025em;
 }
 
 .stat-card.warning .stat-value {
-  color: #ea580c;
+  color: var(--color-warning);
 }
 
 .stat-card.success .stat-value {
-  color: #059669;
+  color: var(--color-success);
 }
 
 .stat-card.danger .stat-value {
-  color: #dc2626;
+  color: var(--color-error);
 }
 
 .stat-card.info .stat-value {
-  color: #2563eb;
+  color: var(--color-info);
 }
 
+/* Card Styles */
 .card {
-  background: white;
-  border-radius: 10px;
-  padding: 1.25rem;
-  border: 1px solid #e2e8f0;
-  margin-bottom: 1.25rem;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid var(--border-light);
+  margin-bottom: 1.5rem;
+  transition: background-color 0.2s, border-color 0.2s;
 }
 
 .card-header {
@@ -360,18 +487,20 @@ body {
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 0.875rem;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .card-title {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-primary);
   letter-spacing: -0.025em;
 }
 
+/* Table Styles */
 .table-container {
   overflow-x: auto;
+  border-radius: 8px;
 }
 
 table {
@@ -380,25 +509,25 @@ table {
 }
 
 thead {
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
 th {
   text-align: left;
-  padding: 0.5rem 0.75rem;
+  padding: 0.75rem 1rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--text-secondary);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 td {
-  padding: 0.5rem 0.75rem;
-  border-top: 1px solid #f1f5f9;
-  color: #334155;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
@@ -407,13 +536,14 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: #f8fafc;
+  background: var(--bg-secondary);
 }
 
+/* Badge Styles */
 .badge {
   display: inline-block;
-  padding: 0.313rem 0.75rem;
-  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -470,10 +600,11 @@ tbody tr:hover {
   color: #1e40af;
 }
 
+/* Loading & Error States */
 .loading {
   text-align: center;
   padding: 3rem;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.938rem;
 }
 
@@ -485,5 +616,38 @@ tbody tr:hover {
   border-radius: 8px;
   margin: 1rem 0;
   font-size: 0.938rem;
+}
+
+.dark-mode .error {
+  background: #7f1d1d;
+  border-color: #991b1b;
+  color: #fecaca;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .main-wrapper {
+    margin-left: 0;
+  }
+
+  .top-bar {
+    padding: 1rem;
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .top-bar-right {
+    gap: 0.5rem;
+  }
+
+  .page-title {
+    font-size: 1.25rem;
+  }
 }
 </style>
