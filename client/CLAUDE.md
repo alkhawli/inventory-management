@@ -12,6 +12,13 @@ npm run dev
 
 ## Development Best Practices
 
+### Code Documentation
+- **Always document non-obvious logic changes with comments**
+  - Explain complex reactive logic and computed properties
+  - Document component behavior and side effects
+  - Clarify data transformations and calculations
+  - Add context for business rules in the UI
+
 ### Vue 3 Composition API Patterns
 
 **Component Structure:**
