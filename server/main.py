@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -119,6 +120,33 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockRecommendation(BaseModel):
+    item_sku: str
+    item_name: str
+    category: str
+    current_stock: int
+    forecasted_demand: int
+    recommended_quantity: int
+    unit_cost: float
+    total_cost: float
+    priority: str
+    trend: str
+
+class RestockOrderRequest(BaseModel):
+    items: List[dict]  # List of items with sku and quantity
+    total_budget: float
+    notes: Optional[str] = None
+
+class RestockOrderResponse(BaseModel):
+    order_id: str
+    order_number: str
+    status: str
+    total_value: float
+    items: List[dict]
+    expected_delivery: str
+    delivery_lead_time_days: int
+    order_date: str
 
 # API endpoints
 @app.get("/")
@@ -303,6 +331,188 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.post("/api/restock/recommendations", response_model=List[RestockRecommendation])
+def get_restock_recommendations(budget: float):
+    """
+    Generate restocking recommendations based on available budget.
+
+    Algorithm:
+    1. Combine inventory data with demand forecasts
+    2. Prioritize items with:
+       - Increasing demand trend
+       - Low stock relative to reorder point
+       - High forecasted demand
+    3. Calculate recommended quantity within budget constraints
+    4. Return sorted list by priority (High > Medium > Low)
+    """
+    if budget <= 0:
+        raise HTTPException(status_code=400, detail="Budget must be greater than 0")
+
+    recommendations = []
+    remaining_budget = budget
+
+    # Create a map of demand forecasts by SKU for quick lookup
+    demand_map = {forecast['item_sku']: forecast for forecast in demand_forecasts}
+
+    # Analyze each inventory item
+    for item in inventory_items:
+        sku = item['sku']
+
+        # Check if we have demand forecast for this item
+        if sku not in demand_map:
+            continue
+
+        forecast = demand_map[sku]
+        current_stock = item['quantity_on_hand']
+        reorder_point = item['reorder_point']
+        forecasted_demand = forecast['forecasted_demand']
+        trend = forecast['trend']
+        unit_cost = item['unit_cost']
+
+        # Calculate priority based on stock level and trend
+        # High priority: Low stock + Increasing trend
+        # Medium priority: Low stock OR Increasing trend
+        # Low priority: Adequate stock + Stable/Decreasing trend
+        is_low_stock = current_stock <= reorder_point
+        is_increasing = trend.lower() == 'increasing'
+
+        if is_low_stock and is_increasing:
+            priority = 'High'
+            priority_score = 3
+        elif is_low_stock or is_increasing:
+            priority = 'Medium'
+            priority_score = 2
+        else:
+            priority = 'Low'
+            priority_score = 1
+
+        # Calculate recommended quantity
+        # Order enough to meet forecasted demand minus current stock
+        # But ensure we don't go below reorder point buffer
+        recommended_qty = max(forecasted_demand - current_stock, reorder_point)
+
+        # Ensure minimum order of 10 units if we're ordering at all
+        if recommended_qty > 0:
+            recommended_qty = max(recommended_qty, 10)
+
+        total_cost = recommended_qty * unit_cost
+
+        # Only recommend if it fits in remaining budget
+        if total_cost <= remaining_budget:
+            recommendations.append({
+                'item_sku': sku,
+                'item_name': item['name'],
+                'category': item['category'],
+                'current_stock': current_stock,
+                'forecasted_demand': forecasted_demand,
+                'recommended_quantity': recommended_qty,
+                'unit_cost': unit_cost,
+                'total_cost': round(total_cost, 2),
+                'priority': priority,
+                'trend': trend,
+                '_priority_score': priority_score  # For sorting
+            })
+            remaining_budget -= total_cost
+
+    # Sort by priority (High > Medium > Low), then by total cost descending
+    recommendations.sort(key=lambda x: (x['_priority_score'], x['total_cost']), reverse=True)
+
+    # Remove internal sorting field before returning
+    for rec in recommendations:
+        del rec['_priority_score']
+
+    return recommendations
+
+@app.post("/api/orders/restock", response_model=RestockOrderResponse)
+def create_restock_order(request: RestockOrderRequest):
+    """
+    Create a new restocking order and add it to the orders list.
+
+    Calculates delivery lead time based on item categories:
+    - Circuit Boards: 14 days
+    - Sensors: 10 days
+    - Actuators: 12 days
+    - Controllers: 10 days
+    - Default: 10 days
+    """
+    # Generate unique order ID and number
+    order_id = f"order_{len(orders) + 1000}"
+    order_number = f"ORD-REST-{len(orders) + 1:05d}"
+
+    # Calculate total value from items
+    total_value = 0
+    order_items = []
+    max_lead_time = 10  # Default lead time
+
+    # Category-based lead times (in days)
+    lead_time_map = {
+        'circuit boards': 14,
+        'sensors': 10,
+        'actuators': 12,
+        'controllers': 10
+    }
+
+    for item_data in request.items:
+        sku = item_data['sku']
+        quantity = item_data['quantity']
+
+        # Find inventory item to get details
+        inventory_item = next((inv for inv in inventory_items if inv['sku'] == sku), None)
+        if not inventory_item:
+            continue
+
+        item_cost = inventory_item['unit_cost'] * quantity
+        total_value += item_cost
+
+        # Determine lead time based on category
+        category = inventory_item['category'].lower()
+        item_lead_time = lead_time_map.get(category, 10)
+        max_lead_time = max(max_lead_time, item_lead_time)
+
+        order_items.append({
+            'sku': sku,
+            'name': inventory_item['name'],
+            'quantity': quantity,
+            'unit_price': inventory_item['unit_cost'],
+            'total': round(item_cost, 2)
+        })
+
+    # Calculate dates
+    order_date = datetime.now().strftime('%Y-%m-%d')
+    expected_delivery = (datetime.now() + timedelta(days=max_lead_time)).strftime('%Y-%m-%d')
+
+    # Create new order object
+    new_order = {
+        'id': order_id,
+        'order_number': order_number,
+        'customer': 'Internal Restocking',
+        'items': order_items,
+        'status': 'Processing',
+        'order_date': order_date,
+        'expected_delivery': expected_delivery,
+        'total_value': round(total_value, 2),
+        'actual_delivery': None,
+        'warehouse': 'Multiple',  # Restocking orders can affect multiple warehouses
+        'category': 'Restocking',
+        'notes': request.notes or 'Automated restocking order',
+        'is_restock_order': True,  # Flag to identify restock orders
+        'delivery_lead_time_days': max_lead_time
+    }
+
+    # Add to orders list (in-memory)
+    orders.append(new_order)
+
+    return {
+        'order_id': order_id,
+        'order_number': order_number,
+        'status': 'Processing',
+        'total_value': round(total_value, 2),
+        'items': order_items,
+        'expected_delivery': expected_delivery,
+        'delivery_lead_time_days': max_lead_time,
+        'order_date': order_date
+    }
 
 if __name__ == "__main__":
     import uvicorn

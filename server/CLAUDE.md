@@ -13,6 +13,13 @@ uv run python main.py
 
 ## Development Best Practices
 
+### Code Documentation
+- **Always document non-obvious logic changes with comments**
+  - Explain complex business logic and calculations
+  - Document filtering algorithms and data transformations
+  - Clarify edge cases and validation rules
+  - Add context for "why" decisions were made
+
 ### API Design Principles
 
 **RESTful Design:**
